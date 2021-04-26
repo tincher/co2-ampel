@@ -5,13 +5,12 @@
 #include <SoftwareSerial.h>
 #define RX_PIN 5         //MH-Z19 RX-PIN                                         
 #define TX_PIN 4         //MH-Z19 TX-PIN  
+#define PWMPIN 3
 #define MYLEDPIN 6
 #define BAUDRATE 9600
 #define LIMIT 1500
 
-U8G2_SSD1306_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);
-MHZ19 myMHZ19;
-SoftwareSerial mySerial(RX_PIN, TX_PIN);
+
 
 typedef struct Position {
   int x;
@@ -37,11 +36,19 @@ typedef struct Position {
   };
 } Position;
 
-int ppm;
+
+U8G2_SSD1306_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);
+MHZ19 myMHZ19;
+SoftwareSerial mySerial(RX_PIN, TX_PIN);
+
 Position loadingBarPosition;
 Position ppmPosition;
 Position circlePosition;
 Position temperaturePosition;
+
+unsigned long TH;
+unsigned long TL;
+unsigned long pwmCO2;
 
 
 void u8g2_prepare() {
@@ -70,7 +77,7 @@ void print_co2_value(int value, Position position) {
   u8g2.drawStr(position.x + 50, position.y, value_as_string.c_str());
 }
 
-void print_temperature_value(int value, Position position){
+void print_temperature_value(int value, Position position) {
   u8g2.drawStr(position.x, position.y, "Temp:");
   String value_as_string = String(value);
   u8g2.drawStr(position.x + 50, position.y, value_as_string.c_str());
@@ -91,11 +98,12 @@ void setup(void) {
   u8g2_prepare();
   Serial.begin(BAUDRATE);
   pinMode(MYLEDPIN, OUTPUT);
+  pinMode(PWMPIN, INPUT_PULLUP);
+
   mySerial.begin(BAUDRATE);
   myMHZ19.begin(mySerial);
   myMHZ19.autoCalibration();
 
-  ppm = 100;
   loadingBarPosition = Position(5, 10, 15, 80);
   ppmPosition = Position(5, 30);
   circlePosition = Position(128, 64, 40);
@@ -103,30 +111,31 @@ void setup(void) {
 }
 
 void loop(void) {
-  int CO2;
-  CO2 = myMHZ19.getCO2();
-  int8_t temperature;
-  temperature = myMHZ19.getTemperature();
+  int uartCO2 = myMHZ19.getCO2();
+  TH = pulseIn(PWMPIN, HIGH, 2200000UL) / 1000;
+  TL = pulseIn(PWMPIN, LOW, 2200000UL) / 1000;
+  pwmCO2 = 5000 * (TH - 2) / (TH + TL - 4);
 
+  int8_t temperature = myMHZ19.getTemperature();
+
+  int CO2 = (uartCO2 + pwmCO2) / 2;
   u8g2.firstPage();
+
   do {
     if (CO2 > LIMIT) {
       digitalWrite(MYLEDPIN, HIGH);
       drawCircle(circlePosition);
-
-      delay(100);
     } else {
       digitalWrite(MYLEDPIN, LOW);
-      delay(100);
     }
-    Serial.print("CO2 (ppm): ");
-    Serial.println(CO2);
+    //  Serial.println(pwmCO2);
+    //  Serial.println(uartCO2);
+    //  Serial.println();
     
-    Serial.print("Temperature (C): ");
-    Serial.println(temperature);
+    u8g2.drawStr(5, 50, String(uartCO2).c_str());
+    u8g2.drawStr(50, 50, String(pwmCO2).c_str());
+
 
     displayHandler(CO2, temperature, loadingBarPosition, ppmPosition, temperaturePosition);
   } while ( u8g2.nextPage() );
-
-  delay(2000);
 }
