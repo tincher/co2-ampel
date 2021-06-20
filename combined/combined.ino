@@ -36,7 +36,6 @@ typedef struct Position {
 
 U8G2_SSD1306_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);
 MHZ co2(RX_PIN, TX_PIN, PWMPIN, MHZ19B);
-SoftwareSerial mySerial(RX_PIN, TX_PIN);
 
 Position loadingBarPosition;
 Position ppmPosition;
@@ -51,14 +50,21 @@ int preheating = 0;
 
 void u8g2_prepare() {
   u8g2.setFont(u8g2_font_6x10_tf);
+//  u8g2.setFont(u8g2_font_profont10_tf);
   u8g2.setFontRefHeightExtendedText();
   u8g2.setDrawColor(1);
   u8g2.setFontPosTop();
   u8g2.setFontDirection(0);
+  u8g2.enableUTF8Print();  
+}
+
+void my_draw_string(int x, int y, String text) {
+  u8g2.setCursor(x, y);
+  u8g2.print(text);
 }
 
 void draw_loading_bar(float percent, Position position) {
-  u8g2.drawStr(position.x, position.y - 10, "LoadingBar");
+  my_draw_string(position.x, position.y - 10, "Sörens CO2");
   u8g2.drawBox(position.x + 1, position.y + 1, int(percent * (position.width - 2)), position.height - 2);
   u8g2.drawRFrame(position.x, position.y, position.width, position.height, 3);
 }
@@ -70,21 +76,21 @@ void draw_loading_bar_with_limit(float value, float limit, Position position) {
 }
 
 void print_co2_value(int value, Position position) {
-  u8g2.drawStr(position.x, position.y, "Co2 ppm:");
+  my_draw_string(position.x, position.y, "CO2 ppm:");
   String value_as_string = String(value);
-  u8g2.drawStr(position.x + 50, position.y, value_as_string.c_str());
-  u8g2.drawStr(5, 50, String(ppm_uart).c_str());
-  u8g2.drawStr(50, 50, String(ppm_pwm).c_str());
+  my_draw_string(position.x + 50, position.y, value_as_string.c_str());
+//  my_draw_string(5, 50, String(ppm_uart).c_str());
+//  my_draw_string(50, 50, String(ppm_pwm).c_str());
 }
 
 void print_temperature_value(int value, Position position) {
-  u8g2.drawStr(position.x, position.y, "Temp:");
+  my_draw_string(position.x, position.y, "Temp:");
   String value_as_string = String(value);
-  u8g2.drawStr(position.x + 50, position.y, value_as_string.c_str());
+  my_draw_string(position.x + 50, position.y, value_as_string.c_str());
 }
 
 void draw_preheating() {
-  u8g2.drawStr(50, 50, "Heizt auf ...");
+  my_draw_string(50, 50, "Heizt auf ...");
 }
 
 void displayHandler(int ppm, int temperature, Position loadingBarPosition, Position ppmPosition, Position tempPosition, int isPreheating) {
@@ -94,8 +100,9 @@ void displayHandler(int ppm, int temperature, Position loadingBarPosition, Posit
     draw_loading_bar_with_limit(ppm, LIMIT, loadingBarPosition);
     print_co2_value(ppm, ppmPosition);
     print_temperature_value(temperature, tempPosition);
-    u8g2.drawStr(5, 50, String(ppm_uart).c_str());
-    u8g2.drawStr(50, 50, String(ppm_pwm).c_str());
+    if (ppm > LIMIT) {
+      drawCircle(circlePosition);
+    }
   }
 }
 
@@ -106,32 +113,38 @@ void drawCircle(Position circlePosition) {
 void setup(void) {
   u8g2.begin();
   u8g2_prepare();
+  
   Serial.begin(BAUDRATE);
   pinMode(MYLEDPIN, OUTPUT);
   pinMode(PWMPIN, INPUT);
 
   delay(100);
 
-  mySerial.begin(BAUDRATE);
-
   loadingBarPosition = Position(5, 10, 15, 80);
   ppmPosition = Position(5, 30);
   circlePosition = Position(128, 64, 40);
   temperaturePosition = Position(5, 40);
 
+  Serial.println("preheat");
 }
 
 void loop() {
-  if (!co2.isPreHeating()) {
-    ppm_uart = co2.readCO2UART();
-    ppm_pwm = co2.readCO2PWM();
-    temperature = co2.getLastTemperature();
-    CO2 = (ppm_uart + ppm_pwm) / 2;
-  }
   int preheating = co2.isPreHeating();
+
+  ppm_uart = co2.readCO2UART();
+  ppm_pwm = co2.readCO2PWM();
+  temperature = co2.getLastTemperature();
+  CO2 = ppm_uart;
+
+  Serial.print("UART: \t");
+  Serial.println(ppm_uart);
+  Serial.print("PWM: \t");
+  Serial.println(ppm_pwm);
+  Serial.print("Temp: \t");
+  Serial.println(temperature);
+
   if (CO2 > LIMIT) {
     digitalWrite(MYLEDPIN, HIGH);
-    drawCircle(circlePosition);
   } else {
     digitalWrite(MYLEDPIN, LOW);
   }
@@ -139,6 +152,6 @@ void loop() {
   u8g2.firstPage();
   do {
     displayHandler(CO2, temperature, loadingBarPosition, ppmPosition, temperaturePosition, preheating);
-  } while ( u8g2.nextPage() );
-  delay(2000);
+  } while (u8g2.nextPage());
+  delay(3000);
 }
